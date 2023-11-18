@@ -1,0 +1,5 @@
+Cliente: Cliente1: pipi
+Servidor: pupu
+Cliente: Cliente2: a
+Cliente: Cliente2: exit
+---- Sesión Finalizada ----

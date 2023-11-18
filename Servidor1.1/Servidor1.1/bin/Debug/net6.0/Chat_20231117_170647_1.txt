@@ -1,0 +1,3 @@
+Cliente: Cliente1: pipi
+Cliente: Cliente2: pupu
+---- Sesión Finalizada ----
