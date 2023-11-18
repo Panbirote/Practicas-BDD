@@ -1,0 +1,14 @@
+C:\Users\Panbirote\source\repos\Cliente1.1\Cliente1.1\obj\Debug\net6.0\Cliente1.1.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Panbirote\source\repos\Cliente1.1\Cliente1.1\obj\Debug\net6.0\Cliente1.1.AssemblyInfoInputs.cache
+C:\Users\Panbirote\source\repos\Cliente1.1\Cliente1.1\obj\Debug\net6.0\Cliente1.1.AssemblyInfo.cs
+C:\Users\Panbirote\source\repos\Cliente1.1\Cliente1.1\obj\Debug\net6.0\Cliente1.1.csproj.CoreCompileInputs.cache
+C:\Users\Panbirote\source\repos\Cliente1.1\Cliente1.1\bin\Debug\net6.0\Cliente1.1.exe
+C:\Users\Panbirote\source\repos\Cliente1.1\Cliente1.1\bin\Debug\net6.0\Cliente1.1.deps.json
+C:\Users\Panbirote\source\repos\Cliente1.1\Cliente1.1\bin\Debug\net6.0\Cliente1.1.runtimeconfig.json
+C:\Users\Panbirote\source\repos\Cliente1.1\Cliente1.1\bin\Debug\net6.0\Cliente1.1.dll
+C:\Users\Panbirote\source\repos\Cliente1.1\Cliente1.1\bin\Debug\net6.0\Cliente1.1.pdb
+C:\Users\Panbirote\source\repos\Cliente1.1\Cliente1.1\obj\Debug\net6.0\Cliente1.1.dll
+C:\Users\Panbirote\source\repos\Cliente1.1\Cliente1.1\obj\Debug\net6.0\refint\Cliente1.1.dll
+C:\Users\Panbirote\source\repos\Cliente1.1\Cliente1.1\obj\Debug\net6.0\Cliente1.1.pdb
+C:\Users\Panbirote\source\repos\Cliente1.1\Cliente1.1\obj\Debug\net6.0\Cliente1.1.genruntimeconfig.cache
+C:\Users\Panbirote\source\repos\Cliente1.1\Cliente1.1\obj\Debug\net6.0\ref\Cliente1.1.dll
