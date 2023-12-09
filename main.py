@@ -1,0 +1,265 @@
+import redis
+import docker
+import socket
+
+class RedisNodeManager:
+    def _init_(self, nodos_esclavos):
+        self.client = docker.from_env()
+        self.redis_containers = []
+        self.nodos_esclavos = nodos_esclavos
+
+    def check_slave_ports_in_use(self):
+        used_slave_ports = []
+        containers = self.client.containers.list()
+        for container in containers:
+            container_ports = container.attrs['NetworkSettings']['Ports']
+            if container_ports:
+                for port_info in container_ports.values():
+                    if port_info is not None:
+                        for port in port_info:
+                            container_port = int(port['HostPort'])
+                            used_slave_ports.append(container_port)
+        return used_slave_ports
+
+    def create_redis_node(self, port, master_host=None, master_port=None):
+        try:
+            # Código para crear el contenedor del nodo esclavo
+            container = self.client.containers.run(
+                'redis:latest',
+                detach=True,
+                ports={f'{master_port}/tcp': port},
+                name=f"redis_node_{port}",
+                command=f"redis-server --slaveof {master_host} {master_port}"
+            )
+            self.redis_containers.append(container)
+            container_name = container.name
+            print(f"Redis node running on port {port} connected to {master_host}:{master_port} as a slave. Container name: {container_name}")
+        except docker.errors.APIError as e:
+            print(f"Error creating Redis node: {e}")
+
+    def stop_all_redis_nodes(self):
+        for container in self.redis_containers:
+            container.stop()
+
+
+class AlumnoManager:
+    def _init_(self, master_host=None, master_port=6379, slave_hosts=None, nodos_esclavos=None):
+        if master_host is None:
+            # Obtener la dirección IP de la máquina
+            self.master_host = socket.gethostbyname(socket.gethostname())
+        else:
+            self.master_host = master_host
+
+        self.master_port = master_port
+        self.slave_hosts = slave_hosts if slave_hosts else []
+        self.nodos_esclavos = nodos_esclavos if nodos_esclavos else []
+        self.redis_master = redis.StrictRedis(host=self.master_host, port=self.master_port, db=0)
+        self.current_redis_node = self.redis_master
+        self.client = docker.from_env()
+
+    def detect_redis_port(self):
+        redis_containers = self.client.containers.list()
+        for container in redis_containers:
+            container_ports = container.attrs['NetworkSettings']['Ports']
+            for port_info in container_ports.values():
+                if port_info is not None:
+                    for port in port_info:
+                        if port['HostPort'] == '6379':
+                            return int(port['HostPort'])
+        return None
+    def connect_to_redis_master(self):
+        redis_containers = self.client.containers.list()
+
+        for container in redis_containers:
+            container_ports = container.attrs['HostConfig']['PortBindings']
+            for port_info in container_ports.get('6379/tcp', []):
+                if port_info['HostPort'] == '6379':
+                    try:
+                        self.redis_master = redis.StrictRedis(host='localhost', port=6379, db=0)
+                        self.current_redis_node = self.redis_master
+                        print("Conectado al nodo maestro en el puerto 6379.")
+                        return
+                    except redis.exceptions.ConnectionError as e:
+                        print(f"No se pudo conectar al nodo maestro en el puerto 6379: {e}")
+
+        # Si no se pudo conectar al nodo maestro, intentar conectarse a un nodo esclavo
+        for container in redis_containers:
+            container_ports = container.attrs['HostConfig']['PortBindings']
+            for port_info in container_ports.get('6379/tcp', []):
+                try:
+                    host_port = int(port_info['HostPort'])
+                    redis_slave = redis.StrictRedis(host='localhost', port=host_port, db=0)
+                    redis_slave.ping()  # Intentar conexión al nodo esclavo
+                    self.redis_master = redis_slave
+                    self.current_redis_node = self.redis_master
+                    print(f"Conectado al nodo esclavo en el puerto {host_port}.")
+                    return
+                except (redis.exceptions.ConnectionError, ValueError):
+                    pass
+
+        print("No se encontró ningún nodo maestro o esclavo de Redis en el puerto 6379.")
+
+
+    def master_available(self):
+        try:
+            self.redis_master.ping()
+            return True
+        except redis.exceptions.ConnectionError:
+            return False
+
+    def slave_available(self, host, port):
+        try:
+            slave = redis.StrictRedis(host=host, port=port, db=0)
+            slave.ping()
+            return True
+        except redis.exceptions.ConnectionError:
+            return False
+
+    def obtener_nuevo_id_alumno(self):
+        # Incrementar el contador y obtener un nuevo ID único para un alumno
+        return self.redis_master.incr('contador_alumnos')
+
+    def agregar_alumno(self, nombre, apellido, edad):
+        if not self.master_available():
+            print("Error: No se puede agregar al alumno. Nodo maestro de Redis no disponible.")
+            return None  # Retornar None para indicar que la operación de agregar falló
+        elif self.current_redis_node != self.redis_master:
+            print("Error: No se puede agregar al alumno. Conectado a un nodo esclavo de Redis.")
+            return None  # Retornar None para indicar que la operación de agregar falló
+
+        # Generar un nuevo ID automáticamente
+        id_alumno = self.obtener_nuevo_id_alumno()
+
+        # Agregar un alumno con el nodo actual
+        key = f'alumno:{id_alumno}'
+        self.current_redis_node.hset(key, 'nombre', nombre)
+        self.current_redis_node.hset(key, 'apellido', apellido)
+        self.current_redis_node.hset(key, 'edad', edad)
+        return id_alumno  # Retornar el ID generado
+
+    def obtener_alumno(self, id_alumno):
+        # Obtener los datos de un alumno
+        key = f'alumno:{id_alumno}'
+        return self.redis_master.hgetall(key)
+
+    def actualizar_alumno(self, id_alumno, nombre=None, apellido=None, edad=None):
+        # Actualizar los datos de un alumno
+        key = f'alumno:{id_alumno}'
+        alumno_info = self.obtener_alumno(id_alumno)
+        if alumno_info:
+            if nombre:
+                alumno_info['nombre'] = nombre
+            if apellido:
+                alumno_info['apellido'] = apellido
+            if edad:
+                alumno_info['edad'] = edad
+            self.redis_master.hmset(key, alumno_info)
+            return True
+        return False
+
+    def eliminar_alumno(self, id_alumno):
+        # Eliminar un alumno
+        key = f'alumno:{id_alumno}'
+        return self.redis_master.delete(key)
+
+    def mostrar_alumnos(self):
+        # Obtener solo los IDs de los alumnos
+        keys = self.current_redis_node.keys('alumno:*')
+        alumnos_ids = [key.decode('utf-8').split(':')[-1] for key in keys]
+
+        # Ordenar los IDs de los alumnos
+        alumnos_ids.sort()
+
+        # Mostrar solo los IDs de los alumnos
+        return alumnos_ids
+
+    # Función para gestionar la creación de nodos esclavos
+    def crear_nodo_esclavo(self):
+        node_manager = RedisNodeManager(self.nodos_esclavos)
+
+        used_ports = node_manager.check_slave_ports_in_use()
+        print(f"Puertos de nodos esclavos en uso: {used_ports}")
+
+        # Obtener la IP de la máquina o permitir al usuario ingresar una
+        master_host = input(f"Ingrese la IP del nodo maestro (por defecto: {self.master_host}): ")
+        if not master_host:
+            master_host = self.master_host
+
+        master_port = input("Ingrese el puerto del nodo maestro (ej. 6379): ")
+
+        while True:
+            slave_port = input("Ingrese el puerto para el nodo esclavo (ej. 6380): ")
+            if int(slave_port) not in used_ports:
+                break
+            else:
+                print("El puerto ya está en uso. Por favor, elija otro puerto.")
+
+        node_manager.create_redis_node(int(slave_port), master_host=master_host, master_port=master_port)
+
+
+# Crear una instancia del AlumnoManager
+alumno_manager = AlumnoManager()
+
+# Conectar automáticamente al nodo maestro al iniciar el programa
+alumno_manager.connect_to_redis_master()
+
+# Menú de opciones para el usuario
+while True:
+    print("\nMenú:")
+    print("1. Agregar alumno")
+    print("2. Mostrar todos los alumnos")
+    print("3. Obtener datos de un alumno")
+    print("4. Actualizar datos de un alumno")
+    print("5. Eliminar alumno")
+    print("6. Nuevo nodo")
+    print("7. Salir")
+
+    opcion = input("Ingrese el número de la opción deseada: ")
+
+    if opcion == '1':
+        if not alumno_manager.master_available():
+            print("Error: No se puede agregar al alumno. Nodo maestro de Redis no disponible.")
+        elif alumno_manager.current_redis_node != alumno_manager.redis_master:
+            print("Error: No se puede agregar al alumno. Conectado a un nodo esclavo de Redis.")
+        else:
+            nombre = input("Ingrese el nombre del alumno: ")
+            apellido = input("Ingrese el apellido del alumno: ")
+            edad = input("Ingrese la edad del alumno: ")
+            nuevo_id_alumno = alumno_manager.agregar_alumno(nombre, apellido, edad)
+            if nuevo_id_alumno:
+                print(f"Alumno agregado exitosamente con ID '{nuevo_id_alumno}'.")
+            else:
+                print("Error al agregar al alumno.")
+    elif opcion == '2':
+        print("Lista de alumnos:")
+        print(alumno_manager.mostrar_alumnos())
+    elif opcion == '3':
+        id_alumno = input("Ingrese el ID del alumno: ")
+        alumno = alumno_manager.obtener_alumno(id_alumno)
+        if alumno:
+            print(f"Datos del alumno con ID '{id_alumno}':")
+            print(alumno)
+        else:
+            print(f"No se encontró ningún alumno con ID '{id_alumno}'.")
+    elif opcion == '4':
+        id_alumno = input("Ingrese el ID del alumno a actualizar: ")
+        nombre = input("Ingrese el nuevo nombre del alumno (deje en blanco para no cambiar): ")
+        apellido = input("Ingrese el nuevo apellido del alumno (deje en blanco para no cambiar): ")
+        edad = input("Ingrese la nueva edad del alumno (deje en blanco para no cambiar): ")
+        if alumno_manager.actualizar_alumno(id_alumno, nombre, apellido, edad):
+            print(f"Datos del alumno con ID '{id_alumno}' actualizados exitosamente.")
+        else:
+            print(f"No se encontró ningún alumno con ID '{id_alumno}'.")
+    elif opcion == '5':
+        id_alumno = input("Ingrese el ID del alumno a eliminar: ")
+        if alumno_manager.eliminar_alumno(id_alumno):
+            print(f"Alumno con ID '{id_alumno}' eliminado exitosamente.")
+        else:
+            print(f"No se encontró ningún alumno con ID '{id_alumno}'.")
+    elif opcion == '6':  # Opción para crear nodos esclavos
+        alumno_manager.crear_nodo_esclavo()
+    elif opcion == '7':
+        print("Saliendo del programa.")
+        break
+    else:
+        print("Opción inválida. Por favor, ingrese un número válido.")
